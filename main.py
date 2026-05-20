@@ -23,7 +23,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-@bot.command(name='mentor')
+@bot.command(name='cris')
 async def mentor(ctx, *, pergunta: str):
     async with ctx.typing():
         response = model.generate_content(f"Mentor técnico: {pergunta}")
