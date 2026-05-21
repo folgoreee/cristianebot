@@ -6,7 +6,6 @@ import discord
 from discord.ext import commands
 from flask import Flask
 
-# --- 1. LOGS SIMPLIFICADOS ---
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -14,7 +13,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger('CristianeBot')
 
-# --- 2. SERVIDOR WEB NATIVO (Sem dependências inúteis) ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -25,11 +23,10 @@ def run_web():
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
 
-# --- 3. CLASSE DO BOT E SISTEMA COGS ---
 intents = discord.Intents.default()
-intents.message_content = True  # Obrigatório para a Cristiane ler o !cris e !sync
+intents.message_content = True  
 intents.guilds = True
-intents.members = True         # Importante para puxar os nomes corretamente no Cog de Ranking
+intents.members = True         
 
 class CristianeBot(commands.Bot):
     def __init__(self):
@@ -46,7 +43,6 @@ class CristianeBot(commands.Bot):
             if py_file.name.startswith("__"):
                 continue
 
-            # Converte o arquivo do Linux para formato de módulo Python (ex: cogs.ia)
             cog_name = py_file.with_suffix("").as_posix().replace("/", ".")
 
             try:
@@ -55,28 +51,31 @@ class CristianeBot(commands.Bot):
             except Exception as e:
                 logger.error(f"❌ Falha ao carregar o módulo {cog_name}: {e}")
 
-        # Adiciona o comando de sincronização dos Slash Commands dentro do próprio bot
+        # O Comando de Sync definitivo e sem erros
         @self.command(name="sync")
-        @commands.is_owner()  # Apenas você (dono do Token) pode usar
-        async def sync_commands(ctx: commands.Context):
+        @commands.is_owner()
+        async def sync_commands(ctx: commands.Context, guild_especifica: str = None):
             async with ctx.typing():
                 try:
-                    logger.info("🔄 Sincronizando comandos de barra globalmente...")
-                    synced = await self.tree.sync()
-                    await ctx.send(f"🔄 Sucesso! Sincronizados `{len(synced)}` comandos de barra globalmente.")
-                    logger.info(f"✅ {len(synced)} comandos de barra sincronizados com sucesso!")
+                    if guild_especifica == "local":
+                        # Copia os comandos das cogs para o servidor atual e sincroniza na hora
+                        self.tree.copy_global_to(guild=ctx.guild)
+                        synced = await self.tree.sync(guild=ctx.guild)
+                        await ctx.send(f"🔄 Local: `{len(synced)}` comandos sincronizados neste servidor instantaneamente!")
+                    else:
+                        # Sincronização global padrão
+                        synced = await self.tree.sync()
+                        await ctx.send(f"🔄 Global: `{len(synced)}` comandos sincronizados para todos os servidores.")
                 except Exception as e:
-                    await ctx.send(f"❌ Erro ao sincronizar comandos: {e}")
-                    logger.error(f"❌ Falha na sincronização da árvore de comandos: {e}")
+                    await ctx.send(f"❌ Erro na sincronização: {e}")
+                    logger.error(f"❌ Falha no sync: {e}", exc_info=True)
 
     async def on_ready(self):
         logger.info(f"🚀 {self.user.name} está ONLINE!")
 
-# --- 4. INICIALIZAÇÃO DO ECOSSISTEMA ---
 if __name__ == "__main__":
-    # Só liga o Flask na nuvem (Render) para economizar processamento local
     if os.getenv("RENDER") or os.getenv("PORT"):
-        logger.info("🌐 Ambiente de Production detectado. Servidor Web ativado.")
+        logger.info("🌐 Ambiente de Produção detectado. Servidor Web ativado.")
         threading.Thread(target=run_web, daemon=True).start()
 
     bot = CristianeBot()

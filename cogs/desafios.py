@@ -5,7 +5,7 @@ import asyncio
 import discord
 from pathlib import Path
 from discord.ext import commands
-from discord import app_commands  # Importação necessária para Slash Commands
+from discord import app_commands
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
@@ -13,11 +13,8 @@ from google.genai import types
 logger = logging.getLogger('CristianeBot.Desafios')
 LEADERBOARD_FILE = Path("leaderboard.json")
 
-# ===================================================================
-# MODELO DE VALIDAÇÃO PARA O GEMINI (Structured Outputs)
-# ===================================================================
 class QuizSchema(BaseModel):
-    pergunta: str = Field(description="A descrição clara do problem técnico ou código com erro.")
+    pergunta: str = Field(description="A descrição clara do problema técnico ou código com erro.")
     A: str = Field(description="Texto da Opção A.")
     B: str = Field(description="Texto da Opção B.")
     C: str = Field(description="Texto da Opção C.")
@@ -25,9 +22,6 @@ class QuizSchema(BaseModel):
     correta: str = Field(description="A letra da opção correta (A, B, C ou D).")
     pontos: int = Field(description="Um número inteiro de 10 a 50 com base na dificuldade do problema.")
 
-# ===================================================================
-# INTERFACE DOS BOTÕES DO QUIZ (discord.ui.View)
-# ===================================================================
 class QuizView(discord.ui.View):
     def __init__(self, cog_desafios, autor_id: int, resposta_correta: str, pontos: int):
         super().__init__(timeout=60.0)
@@ -92,9 +86,6 @@ class QuizView(discord.ui.View):
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
 
-# ===================================================================
-# COG DE DESAFIOS E RANKING (COM SLASH COMMANDS)
-# ===================================================================
 class Desafios(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -105,7 +96,6 @@ class Desafios(commands.Cog):
         if LEADERBOARD_FILE.exists():
             try:
                 with open(LEADERBOARD_FILE, "r", encoding="utf-8") as f:
-                    logger.info("💾 Leaderboard carregada do disco!")
                     return json.load(f)
             except Exception as e:
                 logger.error(f"❌ Erro ao ler leaderboard.json: {e}")
@@ -126,14 +116,11 @@ class Desafios(commands.Cog):
         self.guardar_leaderboard()
         return self.leaderboard[str_id]
 
-    # Transformado em Slash Command híbrido (funciona com !desafio e com /desafio)
-    @commands.hybrid_command(name="desafio", description="Gera um desafio de escolha múltipla sobre a tecnologia selecionada")
-    @app_commands.describe(tecnologia="A linguagem ou tecnologia do desafio (Ex: Python, JavaScript, Linux)")
+    @commands.hybrid_command(name="desafio", description="Gera um desafio técnico de escolha múltipla")
+    @app_commands.describe(tecnologia="A linguagem ou tecnologia do desafio (Ex: Python, JavaScript)")
     @commands.guild_only()
     async def gerar_desafio(self, ctx: commands.Context, tecnologia: str = "Python"):
-        logger.info(f"🎲 Gerando desafio de {tecnologia} solicitado por {ctx.author}")
-        
-        # Nos comandos híbridos/slash, usamos ctx.defer() para avisar o Discord que a resposta vai demorar (IA pensando)
+        logger.info(f"🎲 Gerando desafio de {tecnologia} para {ctx.author}")
         await ctx.defer()
 
         prompt_quiz = f"Gere um desafio técnico de escolha múltipla sobre {tecnologia} para programadores."
@@ -164,16 +151,13 @@ class Desafios(commands.Cog):
             embed_desafio.set_footer(text=f"Desafio gerado para {ctx.author.name}. Tens 60 segundos!")
 
             view_botoes = QuizView(self, ctx.author.id, dados_quiz.correta, dados_quiz.pontos)
-            
-            # ctx.send funciona tanto para chat normal quanto para responder ao Slash Command diferido
             await ctx.send(embed=embed_desafio, view=view_botoes)
 
         except Exception as e:
             logger.error(f"❌ Erro ao gerar/analisar o desafio: {e}", exc_info=True)
             await ctx.send("❌ Rapaz, deu erro ao gerar o desafio com a IA. Tente rodar o comando novamente!")
 
-    # Transformado em Slash Command híbrido
-    @commands.hybrid_command(name="ranking", description="Exibe o top 10 utilizadores com maior pontuação no servidor")
+    @commands.hybrid_command(name="ranking", description="Exibe o top 10 utilizadores com maior pontuação")
     @commands.guild_only()
     async def mostrar_ranking(self, ctx: commands.Context):
         if not self.leaderboard:
