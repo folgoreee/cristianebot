@@ -41,6 +41,14 @@ class IA(commands.Cog):
         self.bot.loop.create_task(self.processador_da_fila())
         self.bot.loop.create_task(self.verificador_limpeza_ram())
 
+    # --- COMANDO DE LIMPEZA MANUAL ---
+    @commands.command(name="limpar")
+    @commands.has_permissions(manage_messages=True)
+    async def limpar(self, ctx):
+        """Comando para limpar o histórico de contexto do canal manualmente"""
+        await self.limpar_historico_canal(ctx.channel.id)
+        await ctx.send("🧹 Memória do canal resetada com sucesso!")
+
     # --- FILTRO DE LIMPEZA ---
     def _limpar_resposta(self, texto: str) -> str:
         padroes_lixo = [
@@ -86,6 +94,7 @@ class IA(commands.Cog):
         str_id = str(canal_id)
         if str_id not in self.historicos_locais: self.historicos_locais[str_id] = []
         self.historicos_locais[str_id].append({"role": papel, "text": texto})
+        # AUTO-LIMPEZA: Mantém apenas as 20 últimas mensagens
         if len(self.historicos_locais[str_id]) > 20: self.historicos_locais[str_id] = self.historicos_locais[str_id][-20:]
         self.salvar_banco_json()
         self.ultimas_atividades[canal_id] = time.time()
@@ -134,7 +143,6 @@ class IA(commands.Cog):
                 self.atualizar_contexto_canal(ctx.channel.id, "model", texto_final)
 
                 blocos = self.dividir_texto_inteligente(texto_final)
-                # Botões removidos aqui
                 for bloco in blocos:
                     await ctx.send(bloco)
 
