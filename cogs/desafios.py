@@ -13,6 +13,7 @@ from google.genai import types
 logger = logging.getLogger('CristianeBot.Desafios')
 LEADERBOARD_FILE = Path("leaderboard.json")
 
+# Schema de validação do Pydantic para garantir o formato correto de resposta da API
 class QuizSchema(BaseModel):
     pergunta: str = Field(description="A descrição clara do problema técnico ou código com erro.")
     A: str = Field(description="Texto da Opção A.")
@@ -22,6 +23,9 @@ class QuizSchema(BaseModel):
     correta: str = Field(description="A letra da opção correta (A, B, C ou D).")
     pontos: int = Field(description="Um número inteiro de 10 a 50 com base na dificuldade do problema.")
 
+# ===================================================================
+# INTERFACE DOS BOTÕES DO QUIZ (discord.ui.View)
+# ===================================================================
 class QuizView(discord.ui.View):
     def __init__(self, cog_desafios, autor_id: int, resposta_correta: str, pontos: int):
         super().__init__(timeout=60.0)
@@ -30,10 +34,14 @@ class QuizView(discord.ui.View):
         self.resposta_correta = resposta_correta.strip().upper()
         self.pontos = pontos
         self.respondido = False
+        self.message = None  # Guardará a mensagem de referência para atualizar no timeout
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.autor_id:
-            await interaction.response.send_message("❌ Campeão, este desafio não é teu! Usa `/desafio` para criares o teu próprio.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Campeão, este desafio não é teu! Usa `/desafio` para criares o teu próprio.", 
+                ephemeral=True
+            )
             return False
         return True
 
@@ -43,6 +51,7 @@ class QuizView(discord.ui.View):
         self.respondido = True
         self.stop()
 
+        # Desativa visualmente todos os botões após a escolha
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
@@ -54,7 +63,7 @@ class QuizView(discord.ui.View):
                 description=f"Rapaz, sabias mesmo esta! Ganhaste **{self.pontos} pontos**.\n🏆 Total acumulado: **{novo_total} pontos**.",
                 color=discord.Color.green()
             )
-            embed_sucesso.set_footer(text="Cristiane orgulha-se de ti... por agora.")
+            embed_sucesso.set_footer(text="A Cristiane orgulha-se de ti... por agora.")
             await interaction.response.edit_message(embed=embed_sucesso, view=self)
         else:
             embed_erro = discord.Embed(
@@ -62,7 +71,7 @@ class QuizView(discord.ui.View):
                 description=f"Cara, tu já devias saber isto! A resposta correta era a **{self.resposta_correta}**.\nEstuda mais um bocado e tenta novamente!",
                 color=discord.Color.red()
             )
-            embed_erro.set_footer(text="Mais uma falha para o registo.")
+            embed_erro.set_footer(text="Mais uma falha para o registo de bugs.")
             await interaction.response.edit_message(embed=embed_erro, view=self)
 
     @discord.ui.button(label="Opção A", style=discord.ButtonStyle.primary, custom_id="button_a")
@@ -82,10 +91,24 @@ class QuizView(discord.ui.View):
         await self.processar_resposta(interaction, "D")
 
     async def on_timeout(self):
+        """Desativa os botões visualmente no Discord caso o usuário demore mais de 60 segundos"""
+        if self.respondido:
+            return
+        self.respondido = True
+        
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
+                
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception as e:
+                logger.warning(f"Falha ao atualizar visual de timeout na mensagem: {e}")
 
+# ===================================================================
+# COG PRINCIPAL DE DESAFIOS E RANKING
+# ===================================================================
 class Desafios(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -96,6 +119,7 @@ class Desafios(commands.Cog):
         if LEADERBOARD_FILE.exists():
             try:
                 with open(LEADERBOARD_FILE, "r", encoding="utf-8") as f:
+                    logger.info("💾 Leaderboard carregada com sucesso do disco!")
                     return json.load(f)
             except Exception as e:
                 logger.error(f"❌ Erro ao ler leaderboard.json: {e}")
@@ -117,25 +141,32 @@ class Desafios(commands.Cog):
         return self.leaderboard[str_id]
 
     @commands.hybrid_command(name="desafio", description="Gera um desafio técnico de escolha múltipla")
-    @app_commands.describe(tecnologia="A linguagem ou tecnologia do desafio (Ex: Python, JavaScript)")
+    @app_commands.describe(tecnologia="A linguagem ou tecnologia do desafio (Ex: Python, JavaScript, Linux, SQL)")
     @commands.guild_only()
     async def gerar_desafio(self, ctx: commands.Context, tecnologia: str = "Python"):
         logger.info(f"🎲 Gerando desafio de {tecnologia} para {ctx.author}")
+        
+        # O defer evita que a interação com o Slash Command dê timeout no Discord
         await ctx.defer()
 
-        prompt_quiz = f"Gere um desafio técnico de escolha múltipla sobre {tecnologia} para programadores."
+        prompt_quiz = (
+            f"Gere um desafio técnico avançado de escolha múltipla sobre {tecnologia} para desenvolvedores.\n"
+            "Escreva a pergunta de forma clara, podendo incluir trechos curtos de código para avaliação."
+        )
 
         try:
+            # Invoca a API usando o Pydantic como validador nativo de saída estruturada
             response = self.client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt_quiz,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=QuizSchema,
-                    temperature=0.8
+                    temperature=0.85
                 )
             )
 
+            # Valida e tipa os dados usando Pydantic
             dados_quiz = QuizSchema.model_validate_json(response.text)
 
             embed_desafio = discord.Embed(
@@ -151,7 +182,9 @@ class Desafios(commands.Cog):
             embed_desafio.set_footer(text=f"Desafio gerado para {ctx.author.name}. Tens 60 segundos!")
 
             view_botoes = QuizView(self, ctx.author.id, dados_quiz.correta, dados_quiz.pontos)
-            await ctx.send(embed=embed_desafio, view=view_botoes)
+            
+            # Envia o embed e guarda a mensagem para manipulação do timeout
+            view_botoes.message = await ctx.send(embed=embed_desafio, view=view_botoes)
 
         except Exception as e:
             logger.error(f"❌ Erro ao gerar/analisar o desafio: {e}", exc_info=True)
@@ -160,6 +193,7 @@ class Desafios(commands.Cog):
     @commands.hybrid_command(name="ranking", description="Exibe o top 10 utilizadores com maior pontuação")
     @commands.guild_only()
     async def mostrar_ranking(self, ctx: commands.Context):
+        """Exibe o top 10 utilizadores com maior pontuação no servidor"""
         if not self.leaderboard:
             await ctx.send("📉 Campeão, ainda ninguém pontuou neste servidor! Usa `/desafio` para começares.")
             return
