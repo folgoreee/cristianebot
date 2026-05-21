@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 from flask import Flask
 
-# --- 1. LOGS SIMPLIFICADOS ---
+# --- 1. CONFIGURAÇÃO DE LOGS ---
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger('CristianeBot')
 
-# --- 2. SERVIDOR WEB NATIVO ---
+# --- 2. SERVIDOR WEB NATIVO PARA O RENDER ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -23,9 +23,9 @@ def home():
 
 # --- 3. CLASSE DO BOT E SISTEMA COGS ---
 intents = discord.Intents.default()
-intents.message_content = True  
+intents.message_content = True  # Obrigatório para ler prefixos e menções
 intents.guilds = True
-intents.members = True         
+intents.members = True          # Obrigatório para buscar membros no ranking
 
 class CristianeBot(commands.Bot):
     def __init__(self):
@@ -54,13 +54,16 @@ class CristianeBot(commands.Bot):
     async def on_ready(self):
         logger.info(f"🚀 {self.user.name} está ONLINE!")
 
-# Instanciando o bot globalmente para os decoradores funcionarem perfeitamente
+
+# Instanciação única do Bot
 bot = CristianeBot()
 
-# --- 4. COMANDO DE SYNC (ISOLADO E GARANTIDO) ---
+
+# --- 4. COMANDO DE SYNC (ESTRUTURADO E SEGURO) ---
 @bot.command(name="sync")
 @commands.is_owner()
 async def sync_commands(ctx: commands.Context, guild_especifica: str = None):
+    """Sincroniza os comandos de barra (Slash Commands) globais ou locais"""
     async with ctx.typing():
         try:
             if guild_especifica == "local":
@@ -76,23 +79,32 @@ async def sync_commands(ctx: commands.Context, guild_especifica: str = None):
             await ctx.send(f"❌ Erro na sincronização: {e}")
             logger.error(f"❌ Falha no sync: {e}", exc_info=True)
 
-# --- 5. INICIALIZAÇÃO ---
+
+# --- 5. INICIALIZAÇÃO DO SISTEMA ---
 if __name__ == "__main__":
-    # 1. Corrige o erro de sintaxe do hífen e inicia o servidor com waitress se estiver no Render
+    # Inicia o servidor com Waitress se estiver em ambiente de produção (Render)
     if os.getenv("RENDER") or os.getenv("PORT"):
         logger.info("🌐 Ambiente de Produção detectado. Servidor Web Nativo Iniciado via Waitress.")
-        from waitress import serve
-        
-        # Inicia o Flask em uma Thread separada para não bloquear a execução do bot do Discord
-        porta = int(os.environ.get('PORT', 8080))
-        threading.Thread(
-            target=lambda: serve(app, host='0.0.0.0', port=porta),
-            daemon=True
-        ).start()
+        try:
+            from waitress import serve
+            porta = int(os.environ.get('PORT', 8080))
+            threading.Thread(
+                target=lambda: serve(app, host='0.0.0.0', port=porta),
+                daemon=True
+            ).start()
+        except ImportError:
+            logger.warning("⚠️ Waitress não instalado. Iniciando com o servidor padrão do Flask...")
+            porta = int(os.environ.get('PORT', 8080))
+            threading.Thread(
+                target=lambda: app.run(host='0.0.0.0', port=porta),
+                daemon=True
+            ).start()
     
-    # 2. Verificação de segurança do Token
+    # Execução segura do Bot do Discord
     token = os.getenv('DISCORD_TOKEN')
     if token:
         bot.run(token, log_handler=None)
     else:
-        logger.critical("❌ ERRO CRÍTICO: DISCORD_TOKEN não encontrado!")
+        logger.critical("❌ ERRO CRÍTICO: DISCORD_TOKEN não encontrado nas variáveis de ambiente!")
+```
+eof
