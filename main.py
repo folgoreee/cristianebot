@@ -27,8 +27,9 @@ def run_web():
 
 # --- 3. CLASSE DO BOT E SISTEMA COGS ---
 intents = discord.Intents.default()
-intents.message_content = True  # Obrigatório para a Cristiane ler o !cris
+intents.message_content = True  # Obrigatório para a Cristiane ler o !cris e !sync
 intents.guilds = True
+intents.members = True         # Importante para puxar os nomes corretamente no Cog de Ranking
 
 class CristianeBot(commands.Bot):
     def __init__(self):
@@ -54,6 +55,20 @@ class CristianeBot(commands.Bot):
             except Exception as e:
                 logger.error(f"❌ Falha ao carregar o módulo {cog_name}: {e}")
 
+        # Adiciona o comando de sincronização dos Slash Commands dentro do próprio bot
+        @self.command(name="sync")
+        @commands.is_owner()  # Apenas você (dono do Token) pode usar
+        async def sync_commands(ctx: commands.Context):
+            async with ctx.typing():
+                try:
+                    logger.info("🔄 Sincronizando comandos de barra globalmente...")
+                    synced = await self.tree.sync()
+                    await ctx.send(f"🔄 Sucesso! Sincronizados `{len(synced)}` comandos de barra globalmente.")
+                    logger.info(f"✅ {len(synced)} comandos de barra sincronizados com sucesso!")
+                except Exception as e:
+                    await ctx.send(f"❌ Erro ao sincronizar comandos: {e}")
+                    logger.error(f"❌ Falha na sincronização da árvore de comandos: {e}")
+
     async def on_ready(self):
         logger.info(f"🚀 {self.user.name} está ONLINE!")
 
@@ -61,7 +76,7 @@ class CristianeBot(commands.Bot):
 if __name__ == "__main__":
     # Só liga o Flask na nuvem (Render) para economizar processamento local
     if os.getenv("RENDER") or os.getenv("PORT"):
-        logger.info("🌐 Ambiente de Produção detectado. Servidor Web ativado.")
+        logger.info("🌐 Ambiente de Production detectado. Servidor Web ativado.")
         threading.Thread(target=run_web, daemon=True).start()
 
     bot = CristianeBot()
