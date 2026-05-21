@@ -106,5 +106,3 @@ if __name__ == "__main__":
         bot.run(token, log_handler=None)
     else:
         logger.critical("❌ ERRO CRÍTICO: DISCORD_TOKEN não encontrado nas variáveis de ambiente!")
-```
-eof
