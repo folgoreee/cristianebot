@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 from flask import Flask
 
+# --- 1. LOGS SIMPLIFICADOS ---
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -13,6 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger('CristianeBot')
 
+# --- 2. SERVIDOR WEB NATIVO ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -23,6 +25,7 @@ def run_web():
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
 
+# --- 3. CLASSE DO BOT E SISTEMA COGS ---
 intents = discord.Intents.default()
 intents.message_content = True  
 intents.guilds = True
@@ -51,34 +54,36 @@ class CristianeBot(commands.Bot):
             except Exception as e:
                 logger.error(f"❌ Falha ao carregar o módulo {cog_name}: {e}")
 
-        # O Comando de Sync definitivo e sem erros
-        @self.command(name="sync")
-        @commands.is_owner()
-        async def sync_commands(ctx: commands.Context, guild_especifica: str = None):
-            async with ctx.typing():
-                try:
-                    if guild_especifica == "local":
-                        # Copia os comandos das cogs para o servidor atual e sincroniza na hora
-                        self.tree.copy_global_to(guild=ctx.guild)
-                        synced = await self.tree.sync(guild=ctx.guild)
-                        await ctx.send(f"🔄 Local: `{len(synced)}` comandos sincronizados neste servidor instantaneamente!")
-                    else:
-                        # Sincronização global padrão
-                        synced = await self.tree.sync()
-                        await ctx.send(f"🔄 Global: `{len(synced)}` comandos sincronizados para todos os servidores.")
-                except Exception as e:
-                    await ctx.send(f"❌ Erro na sincronização: {e}")
-                    logger.error(f"❌ Falha no sync: {e}", exc_info=True)
-
     async def on_ready(self):
         logger.info(f"🚀 {self.user.name} está ONLINE!")
 
+# Instanciando o bot globalmente para os decoradores funcionarem perfeitamente
+bot = CristianeBot()
+
+# --- 4. COMANDO DE SYNC (ISOLADO E GARANTIDO) ---
+@bot.command(name="sync")
+@commands.is_owner()
+async def sync_commands(ctx: commands.Context, guild_especifica: str = None):
+    async with ctx.typing():
+        try:
+            if guild_especifica == "local":
+                bot.tree.copy_global_to(guild=ctx.guild)
+                synced = await bot.tree.sync(guild=ctx.guild)
+                await ctx.send(f"🔄 Local: `{len(synced)}` comandos sincronizados neste servidor instantaneamente!")
+                logger.info(f"✅ {len(synced)} comandos sincronizados localmente na guilda {ctx.guild.id}")
+            else:
+                synced = await bot.tree.sync()
+                await ctx.send(f"🔄 Global: `{len(synced)}` comandos sincronizados para todos os servidores.")
+                logger.info(f"✅ {len(synced)} comandos sincronizados globalmente.")
+        except Exception as e:
+            await ctx.send(f"❌ Erro na sincronização: {e}")
+            logger.error(f"❌ Falha no sync: {e}", exc_info=True)
+
+# --- 5. INICIALIZAÇÃO ---
 if __name__ == "__main__":
     if os.getenv("RENDER") or os.getenv("PORT"):
         logger.info("🌐 Ambiente de Produção detectado. Servidor Web ativado.")
         threading.Thread(target=run_web, daemon=True).start()
-
-    bot = CristianeBot()
     
     token = os.getenv('DISCORD_TOKEN')
     if token:
