@@ -13,28 +13,6 @@ from google.genai import types
 logger = logging.getLogger('CristianeBot.IA')
 DB_FILE = Path("historico_canais.json")
 
-# --- MANTENHA A CLASSE MENUIA IGUAL ---
-class MenuIA(discord.ui.View):
-    def __init__(self, cog_ia, canal_id: int):
-        super().__init__(timeout=180)
-        self.cog_ia = cog_ia
-        self.canal_id = canal_id
-
-    @discord.ui.button(label="Limpar Memória", style=discord.ButtonStyle.danger, emoji="🧹")
-    async def limpar_memoria_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.manage_messages and interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("❌ Rapaz, tu não tens permissão de moderador para limpar essa memória não!", ephemeral=True)
-            return
-        await self.cog_ia.limpar_historico_canal(self.canal_id)
-        button.disabled = True
-        button.label = "Memória Limpa!"
-        button.style = discord.ButtonStyle.secondary
-        await interaction.response.edit_message(view=self)
-        msg_aviso = await interaction.channel.send("🧹 **Memória resetada!**")
-        await asyncio.sleep(4)
-        try: await msg_aviso.delete()
-        except: pass
-
 class IA(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -44,16 +22,16 @@ class IA(commands.Cog):
         self.ultimas_atividades = {}
         self.ttl_segundos = 30 * 60 
 
-        # --- MELHORIA 1: PERSONALIDADE MAIS BRASILEIRA E IMPACIENTE ---
+        # --- PERSONALIDADE ---
         self.personalidade = (
             "Você é a Cristiane, uma mentora de programação e entusiasta de Linux. "
             "Regras estritas:\n"
             "1. INÍCIO OBRIGATÓRIO: Comece com 'Rapaz...', 'Campeão...' ou 'Meu Amigo...' sempre."
             "2. LINGUAGEM: Use PT-BR informal, direto e sarcástico. Nunca use termos corporativos ou educados demais (ex: 'Com certeza', 'Como IA', 'Estou aqui para ajudar', 'Espero que isso resolva'). Seja ríspida e prática."
             "3. BRONCA: Se a pergunta for básica, dê a bronca de veterana antes de explicar.\n"
-            "4. LINUX: No final de TODA resposta, adicione uma curiosidade rápida sobre Linux, Reforçar a babação em cima do linux, independente do conteúdo da mensagem."
+            "4. LINUX: No final de TODA resposta, adicione uma curiosidade rápida sobre Linux. Reforce a babação em cima do Linux, independente do conteúdo da mensagem."
             "5. TAMANHO: Máximo 3 parágrafos curtos. Não enrole."
-            "6. CONSELHO: Se alguém lhe pedir um conselho, seja como um 'pai', mas também não se esqueça do linux no final do conselho"
+            "6. CONSELHO: Se alguém lhe pedir um conselho, seja como um 'pai', mas também não se esqueça do Linux no final do conselho."
         )
         
         self.config = types.GenerateContentConfig(
@@ -63,9 +41,8 @@ class IA(commands.Cog):
         self.bot.loop.create_task(self.processador_da_fila())
         self.bot.loop.create_task(self.verificador_limpeza_ram())
 
-    # --- MELHORIA 2: FILTRO DE LIXO (LIMPEZA DE RESPOSTA) ---
+    # --- FILTRO DE LIMPEZA ---
     def _limpar_resposta(self, texto: str) -> str:
-        # Lista de frases padrão de IA que a Cristiane deve ignorar
         padroes_lixo = [
             r"(?i)^.*(certamente|claro que|com certeza|aqui está|como uma ia|como um modelo de linguagem|fico feliz em ajudar|espero que isso ajude).*[\n\r]*",
             r"(?i)você precisa de mais alguma coisa.*",
@@ -75,7 +52,7 @@ class IA(commands.Cog):
             texto = re.sub(padrao, "", texto, flags=re.MULTILINE)
         return texto.strip()
 
-    # --- MÉTODOS JSON E GERENCIAMENTO (MANTIDOS) ---
+    # --- MÉTODOS JSON E GERENCIAMENTO ---
     def carregar_banco_json(self):
         if DB_FILE.exists():
             try:
@@ -150,8 +127,6 @@ class IA(commands.Cog):
                 )
                 
                 texto_raw = response.text if response.text else "🙄 ... (Cristiane ficou sem palavras)"
-                
-                # --- APLICAÇÃO DO FILTRO DE LIMPEZA ---
                 texto_final = self._limpar_resposta(texto_raw)
 
                 if pergunta: self.atualizar_contexto_canal(ctx.channel.id, "user", pergunta)
@@ -159,16 +134,14 @@ class IA(commands.Cog):
                 self.atualizar_contexto_canal(ctx.channel.id, "model", texto_final)
 
                 blocos = self.dividir_texto_inteligente(texto_final)
-                visao_botoes = MenuIA(self, ctx.channel.id)
-                for i, bloco in enumerate(blocos):
-                    if i == len(blocos) - 1: await ctx.send(bloco, view=visao_botoes)
-                    else: await ctx.send(bloco)
+                # Botões removidos aqui
+                for bloco in blocos:
+                    await ctx.send(bloco)
 
             except Exception as e:
                 await ctx.send(f"💥 Deu ruim aqui: {e}")
 
     def dividir_texto_inteligente(self, texto: str, limite: int = 1900):
-        # Lógica mantida igual, apenas garantindo que o retorno seja limpo
         if len(texto) <= limite: return [texto]
         partes = []
         linhas = texto.split('\n')
@@ -206,7 +179,6 @@ class IA(commands.Cog):
         if message.author.id == self.bot.user.id: return
         if self.bot.user.mentioned_in(message):
             ctx = await self.bot.get_context(message)
-            # Remove menções do texto
             texto_limpo = re.sub(r'<@!?\d+>', '', message.content).strip()
             await self.pre_processar_e_enfileirar(ctx, texto_limpo)
 
