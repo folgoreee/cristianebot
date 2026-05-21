@@ -1,61 +1,73 @@
 import os
-import discord
+import logging
 import threading
-import google.generativeai as genai
-from flask import Flask
+from pathlib import Path
+import discord
 from discord.ext import commands
+from flask import Flask
 
-# --- 1. Configuração da IA (Gemini) com as Regras da Cristiane ---
-genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-
-# Aqui moldamos a personalidade exata que você pediu
-instrucoes_da_cris = """
-Você é a Cristiane, uma mentora de programação e entusiasta extrema de Linux. Você segue estritamente as seguintes regras de comportamento:
-
-1. SAUDAÇÃO OBRIGATÓRIA: Toda e qualquer resposta sua DEVE começar com "Rapaz..." ou "Campeão...". Escolha um dos dois aleatoriamente no início da frase.
-2. NÍVEL DE PACIÊNCIA: Se a pergunta do usuário for sobre algo muito básico/fácil de programação (daquelas que qualquer estudante iniciante já deveria saber de cabeça), dê uma bronca de leve dizendo exatamente ou variações de: "cara, tu já devia ter estudado isso aí rapaz". Seja direta e um pouco impaciente com o desconhecimento do básico, mas responda logo em seguida.
-3. CURIOSIDADE LINUX OBRIGATÓRIA: No final de TODA resposta, você DEVE adicionar um parágrafo curto com uma curiosidade rápida, aleatória e interessante sobre QUALQUER distribuição Linux (Debian, Arch, Mint, Fedora, CachyOS, Slackware, etc.) ou sobre alguma atualização recente do mundo Linux/Kernel. Não se estenda muito para não ficar chato, seja direta e cirúrgica na curiosidade.
-4. FOCO: Mantenha as respostas didáticas, mas com esse tom de veterano de TI meio sarcástico.
-"""
-
-model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
-    system_instruction=instrucoes_da_cris
+# --- 1. LOGS SIMPLIFICADOS ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+logger = logging.getLogger('CristianeBot')
 
-# --- 2. Servidor Web (Pro UptimeRobot manter vivo) ---
+# --- 2. SERVIDOR WEB NATIVO (Sem dependências inúteis) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Cristianebot está online e com personalidade ativada!"
+    return "Cristianebot está online e operando via Cogs!"
 
 def run_web():
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
 
-# --- 3. Configuração do Bot do Discord ---
+# --- 3. CLASSE DO BOT E SISTEMA COGS ---
 intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+intents.message_content = True  # Obrigatório para a Cristiane ler o !cris
+intents.guilds = True
 
-@bot.event
-async def on_ready():
-    print(f'✅ Bot conectado com sucesso como {bot.user.name}')
+class CristianeBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
 
-@bot.command(name='cris')
-async def cris(ctx, *, pergunta: str):
-    """Comando !cris que invoca a mentora com personalidade"""
-    async with ctx.typing():
-        try:
-            # Enviamos a dúvida do usuário para o modelo já instruído
-            response = model.generate_content(pergunta)
-            await ctx.send(response.text)
-        except Exception as e:
-            print(f"Erro na IA: {e}")
-            await ctx.send("❌ Ih rapaz, deu algum ruim na IA aqui. Tenta de novo.")
+    async def setup_hook(self):
+        logger.info("📂 Iniciando varredura automatizada da pasta 'cogs'...")
+        cogs_dir = Path("./cogs")
+        
+        if not cogs_dir.exists():
+            cogs_dir.mkdir(parents=True, exist_ok=True)
 
-# --- 4. Inicialização Paralela ---
+        for py_file in cogs_dir.rglob("*.py"):
+            if py_file.name.startswith("__"):
+                continue
+
+            # Converte o arquivo do Linux para formato de módulo Python (ex: cogs.ia)
+            cog_name = py_file.with_suffix("").as_posix().replace("/", ".")
+
+            try:
+                await self.load_extension(cog_name)
+                logger.info(f"✅ Módulo [{cog_name}] carregado!")
+            except Exception as e:
+                logger.error(f"❌ Falha ao carregar o módulo {cog_name}: {e}")
+
+    async def on_ready(self):
+        logger.info(f"🚀 {self.user.name} está ONLINE!")
+
+# --- 4. INICIALIZAÇÃO DO ECOSSISTEMA ---
 if __name__ == "__main__":
-    threading.Thread(target=run_web, daemon=True).start()
-    bot.run(os.getenv('DISCORD_TOKEN'))
+    # Só liga o Flask na nuvem (Render) para economizar processamento local
+    if os.getenv("RENDER") or os.getenv("PORT"):
+        logger.info("🌐 Ambiente de Produção detectado. Servidor Web ativado.")
+        threading.Thread(target=run_web, daemon=True).start()
+
+    bot = CristianeBot()
+    
+    token = os.getenv('DISCORD_TOKEN')
+    if token:
+        bot.run(token, log_handler=None)
+    else:
+        logger.critical("❌ ERRO CRÍTICO: DISCORD_TOKEN não encontrado!")
