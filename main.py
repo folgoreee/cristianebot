@@ -21,10 +21,6 @@ app = Flask(__name__)
 def home():
     return "Cristianebot está online e operando via Cogs!"
 
-def run_web():
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
-
 # --- 3. CLASSE DO BOT E SISTEMA COGS ---
 intents = discord.Intents.default()
 intents.message_content = True  
@@ -46,6 +42,7 @@ class CristianeBot(commands.Bot):
             if py_file.name.startswith("__"):
                 continue
 
+            # Converte o caminho do arquivo para o formato de importação do Python (ex: cogs.ia)
             cog_name = py_file.with_suffix("").as_posix().replace("/", ".")
 
             try:
@@ -81,10 +78,19 @@ async def sync_commands(ctx: commands.Context, guild_especifica: str = None):
 
 # --- 5. INICIALIZAÇÃO ---
 if __name__ == "__main__":
+    # 1. Corrige o erro de sintaxe do hífen e inicia o servidor com waitress se estiver no Render
     if os.getenv("RENDER") or os.getenv("PORT"):
-        logger.info("🌐 Ambiente de Produção detectado. Servidor Web ativado.")
-        threading.Thread(target=run_web, daemon=True).start()
+        logger.info("🌐 Ambiente de Produção detectado. Servidor Web Nativo Iniciado via Waitress.")
+        from waitress import serve
+        
+        # Inicia o Flask em uma Thread separada para não bloquear a execução do bot do Discord
+        porta = int(os.environ.get('PORT', 8080))
+        threading.Thread(
+            target=lambda: serve(app, host='0.0.0.0', port=porta),
+            daemon=True
+        ).start()
     
+    # 2. Verificação de segurança do Token
     token = os.getenv('DISCORD_TOKEN')
     if token:
         bot.run(token, log_handler=None)
