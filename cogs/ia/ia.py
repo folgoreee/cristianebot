@@ -55,36 +55,61 @@ class IA(commands.Cog):
                         )
                         conteudo_para_enviar.append(dados_imagem)
 
-            try:
+           try:
                 personalidade = (
                     "Você é a Cristiane, uma mentora de programação e entusiasta de Linux. "
                     "Regras estritas:\n"
-                    "1. INÍCIO OBRIGATÓRIO: Comece com 'Rapaz...', 'Campeão...' ou 'Meu Amigo...' sempre."
-                    "2. LINGUAGEM: Use PT-BR informal, direto e sarcástico. Seja ríspida, prática e prestativa, seja uma mãe"
-                    "3. BRONCA: Se a pergunta for básica, fale 'que diabo de pergunta é essa rapaz' e dê a bronca de veterana."
-                    "4. LINUX: No final de TODA resposta, adicione uma curiosidade rápida sobre Linux. sua distro favorita é o Linux Fedora de vez em quando expresse seu amor por ela"
+                    "1. INÍCIO OBRIGATÓRIO: Comece com 'Rapaz...', 'Campeão...' ou 'Meu Amigo...' sempre.\n"
+                    "2. LINGUAGEM: Use PT-BR informal, direto e sarcástico. Seja ríspida, prática e prestativa, seja uma mãe\n"
+                    "3. BRONCA: Se a pergunta for básica, fale 'que diabo de pergunta é essa rapaz' e dê a bronca de veterana.\n"
+                    "4. LINUX: No final de TODA resposta, adicione uma curiosidade rápida sobre Linux. sua distro favorita é o Linux Fedora de vez em quando expresse seu amor por ele\n"
                     "5. TAMANHO: Máximo 3 parágrafos curtos."
                 )
 
                 config = types.GenerateContentConfig(system_instruction=personalidade)
-                max_tentativas = 3
-                response = None
                 
-                for tentativa in range(max_tentativas):
-                    try:
-                        response = await self.client.aio.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=conteudo_para_enviar,
-                            config=config
-                        )
-                        break 
-                    
-                    except Exception as e:
-                        if "503" in str(e) and tentativa < max_tentativas - 1:
-                            await asyncio.sleep(4) 
-                            continue 
-                        else:
-                            raise e 
+                # Fila de modelos: começa do principal, vai pro mais leve se der erro de cota
+                modelos = ['gemini-2.5-flash', 'gemini-2.5-flash-8b']
+                response = None
+                erro_final = None
+                sucesso = False
+                
+                for modelo in modelos:
+                    max_tentativas = 2
+                    for tentativa in range(max_tentativas):
+                        try:
+                            response = await self.client.aio.models.generate_content(
+                                model=modelo,
+                                contents=conteudo_para_enviar,
+                                config=config
+                            )
+                            sucesso = True
+                            break # Deu certo, sai do loop de tentativas
+                            
+                        except Exception as e:
+                            erro_final = e
+                            erro_str = str(e)
+                            
+                            # Erro 503: Instabilidade no servidor do Google. Espera e tenta de novo.
+                            if "503" in erro_str:
+                                if tentativa < max_tentativas - 1:
+                                    await asyncio.sleep(4)
+                                    continue
+                                    
+                            # Erro 429: Cota excedida (Rate Limit). Abandona o modelo atual e vai pro reserva.
+                            elif "429" in erro_str:
+                                logger.warning(f"Cota estourada no modelo {modelo}! Trocando para o modelo mais leve...")
+                                break # Quebra o loop de tentativas e o 'for' principal passa para o modelo '-8b'
+                                
+                            else:
+                                raise e # Se for outro erro (ex: credencial inválida), para tudo.
+
+                    if sucesso:
+                        break # Se conseguiu a resposta com um dos modelos, sai da fila de modelos
+
+                if not sucesso:
+                    # Se falhou nos dois modelos, dispara o erro para o usuário
+                    raise erro_final
 
                 texto_resposta = response.text if response and response.text else "🙄 ... (Cristiane te ignorou completamente)"
 
@@ -97,7 +122,5 @@ class IA(commands.Cog):
 
             except Exception as e:
                 logger.error(f"Erro ao gerar resposta: {e}")
-                await ctx.send(f"❌ Ocorreu um erro ao processar seu pedido: {e}")
-
-async def setup(bot):
+                await ctx.send("❌ Ocorreu um erro ao processar seu pedido (Acho que a Cristiane foi tomar um café).")
     await bot.add_cog(IA(bot))
