@@ -58,7 +58,7 @@ class IA(commands.Cog):
                         )
                         conteudo_para_enviar.append(dados_imagem)
 
-            try:
+           try:
                 # === PERSONALIDADE DA IA ===
                 personalidade = (
                     "Você é a Cristiane, uma mentora de programação e entusiasta de Linux. "
@@ -73,15 +73,32 @@ class IA(commands.Cog):
 
                 config = types.GenerateContentConfig(system_instruction=personalidade)
 
-                # Chamada do modelo de forma isolada (esquece a conversa ao responder)
-                response = self.client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=conteudo_para_enviar,
-                    config=config
-                )
+                # === SISTEMA DE TENTATIVAS (RETRY PARA ERRO 503) ===
+                max_tentativas = 3
+                response = None
+                
+                for tentativa in range(max_tentativas):
+                    try:
+                        # CORREÇÃO REAL: Usando 'aio' para o bot não congelar
+                        response = await self.client.aio.models.generate_content(
+                            model='gemini-2.5-flash', # Você estava certíssimo aqui!
+                            contents=conteudo_para_enviar,
+                            config=config
+                        )
+                        break # Se deu certo, quebra o loop e segue o jogo
+                    
+                    except Exception as e:
+                        # Se for erro 503 de servidor lotado, ele tenta de novo
+                        if "503" in str(e) and tentativa < max_tentativas - 1:
+                            aviso = await ctx.send(f"⚠️ A Cristiane esbarrou num servidor lotado. Tentando de novo ({tentativa+1}/{max_tentativas})...")
+                            await asyncio.sleep(4) # Espera 4 segundinhos pra API respirar
+                            await aviso.delete()   
+                            continue 
+                        else:
+                            raise e # Se for outro erro (ou esgotar tentativas), aciona o except lá de baixo
 
-                # Proteção de segurança caso a resposta venha nula ou bloqueada por filtros
-                texto_resposta = response.text if response.text else "🙄 ... (Cristiane te ignorou completamente)"
+                # Proteção de segurança
+                texto_resposta = response.text if response and response.text else "🙄 ... (Cristiane te ignorou completamente)"
 
                 # === CORTE INTELIGENTE DE TEXTO ===
                 if len(texto_resposta) > 2000:
@@ -98,17 +115,3 @@ class IA(commands.Cog):
                 msg_erro = await ctx.send(f"❌ Ocorreu um erro ao processar seu pedido: {e}")
                 await asyncio.sleep(5)
 
-                # Deleta as mensagens de erro
-                try:
-                    await msg_erro.delete()
-                except discord.HTTPException:
-                    pass
-                try:
-                    if ctx.guild:
-                        await ctx.message.delete()
-                except discord.HTTPException:
-                    pass
-
-# Carrega o Cog
-async def setup(bot):
-    await bot.add_cog(IA(bot))
