@@ -9,7 +9,7 @@ class IA(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         # 1. VARIÁVEL UNIVERSAL PARA A API DA IA
-        self.client = genai.Client(api_key=os.environ.get("IA_API_KEY"))
+        self.client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
     @commands.command(name="ia")
     @commands.guild_only() # Proteção contra o uso no privado (DM) do bot
