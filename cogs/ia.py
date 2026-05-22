@@ -32,6 +32,20 @@ class IA(commands.Cog):
             temperature=0.7
         )
 
+    # --- COMANDO DE LIMPEZA DE CACHE ---
+    @commands.command(name="limpar_cache")
+    @commands.has_permissions(administrator=True)
+    async def limpar_cache(self, ctx):
+        """Limpa o arquivo cache.json, forçando a IA a consultar a API novamente."""
+        if os.path.exists("cache.json"):
+            try:
+                os.remove("cache.json")
+                await ctx.send("🧹 Cache limpo. Memória de curto prazo resetada. O próximo comando vai forçar uma nova consulta à API do Google.")
+            except Exception as e:
+                await ctx.send(f"💥 Deu erro tentando apagar o cache: {e}")
+        else:
+            await ctx.send("🤖 Não achei nenhum cache pra limpar, campeão. O arquivo nem existe ainda.")
+
     # --- CACHE ---
     def _obter_hash(self, texto: str) -> str:
         return hashlib.md5(texto.lower().strip().encode('utf-8')).hexdigest()
