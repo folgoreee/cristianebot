@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import discord
 from discord.ext import commands
-from keep_alive import keep_alive
+from keep_alive import start_web_server 
 
 # --- CONFIGURAÇÃO DE LOGS ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
@@ -32,9 +32,11 @@ class CristianeBot(commands.Bot):
 
 # --- INICIALIZAÇÃO ---
 if __name__ == "__main__":
-    # Inicia o servidor Web (Flask)
-    if os.getenv("RENDER"):
-        web_server.start_web_server()
+    # Inicia o servidor Web (Flask/Waitress)
+    # Checagem dupla (RENDER ou PORT) para garantir que ele ative na nuvem
+    if os.getenv("RENDER") or os.getenv("PORT"):
+        # Chamando a função diretamente, sem o prefixo web_server
+        start_web_server() 
 
     bot = CristianeBot()
     token = os.getenv('DISCORD_TOKEN')
@@ -42,4 +44,4 @@ if __name__ == "__main__":
     if token:
         bot.run(token)
     else:
-        logger.critical("❌ DISCORD_TOKEN não encontrado!")
+        logger.critical("❌ DISCORD_TOKEN não encontrado nas variáveis de ambiente!")
