@@ -1,4 +1,4 @@
-Import discord
+import discord
 from discord.ext import commands
 from google import genai
 from google.genai import types
