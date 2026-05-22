@@ -3,7 +3,8 @@ import logging
 from pathlib import Path
 import discord
 from discord.ext import commands
-import web_server # Importa o arquivo web_server.py
+from dotenv import load_dotenv
+from keep_alive import keep_alive
 
 # --- CONFIGURAÇÃO DE LOGS ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
