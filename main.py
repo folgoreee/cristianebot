@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 from keep_alive import keep_alive
 
 # --- CONFIGURAÇÃO DE LOGS ---
