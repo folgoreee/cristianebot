@@ -1,122 +1,114 @@
-import os
-import re
-import discord
-import logging
-import hashlib
-import json
+Import discord
 from discord.ext import commands
 from google import genai
 from google.genai import types
-
-logger = logging.getLogger('CristianeBot.IA')
+import os
+import asyncio
 
 class IA(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # 1. VARIÁVEL UNIVERSAL PARA A API DA IA
         self.client = genai.Client(api_key=os.environ.get("IA_API_KEY"))
-        
-        # PERSONALIDADE DA CRISTIANE
-        self.personalidade = (
-            "Você é a Cristiane, uma mentora de programação e entusiasta de Linux. "
-            "Regras estritas:\n"
-            "1. INÍCIO OBRIGATÓRIO: Comece com 'Rapaz...', 'Campeão...' ou 'Meu Amigo...' sempre."
-            "2. LINGUAGEM: Use PT-BR informal, direto e sarcástico. Nunca use termos corporativos ou educados demais. Seja ríspida e prática."
-            "3. BRONCA: Se a pergunta for básica, dê a bronca de veterana antes de explicar.\n"
-            "4. LINUX: No final de TODA resposta, adicione uma curiosidade rápida sobre Linux. Reforce a babação em cima do Linux, independente do conteúdo da mensagem."
-            "5. TAMANHO: Máximo 3 parágrafos curtos. Não enrole."
-            "6. CONSELHO: Se alguém lhe pedir um conselho, seja como um 'pai', mas também não se esqueça do Linux no final do conselho."
-        )
-        self.config = types.GenerateContentConfig(system_instruction=self.personalidade, temperature=0.7)
 
-    # --- CACHE & UTILITÁRIOS ---
-    def _obter_hash(self, texto: str) -> str:
-        return hashlib.md5(texto.lower().strip().encode('utf-8')).hexdigest()
-
-    def _ler_cache(self, pergunta: str):
-        if not os.path.exists("cache.json"): return None
-        try:
-            with open("cache.json", "r", encoding="utf-8") as f:
-                return json.load(f).get(self._obter_hash(pergunta))
-        except: return None
-
-    def _salvar_cache(self, pergunta: str, resposta: str):
-        try:
-            cache = {}
-            if os.path.exists("cache.json"):
-                with open("cache.json", "r", encoding="utf-8") as f: cache = json.load(f)
-            cache[self._obter_hash(pergunta)] = resposta
-            with open("cache.json", "w", encoding="utf-8") as f: json.dump(cache, f, indent=4)
-        except: pass
-
-    def _limpar_resposta(self, texto: str) -> str:
-        padroes = [r"(?i)^.*(certamente|claro que|com certeza|aqui está|como uma ia|fico feliz em ajudar).*[\n\r]*", r"(?i)você precisa de mais alguma coisa.*"]
-        for p in padroes: texto = re.sub(p, "", texto, flags=re.MULTILINE)
-        return texto.strip()
-
-    def dividir_texto(self, texto: str, limite: int = 1900):
-        if len(texto) <= limite: return [texto]
-        partes, bloco, linhas = [], "", texto.split('\n')
-        for linha in linhas:
-            if len(bloco) + len(linha) + 1 > limite:
-                partes.append(bloco)
-                bloco = linha
-            else: bloco += ("\n" + linha) if bloco else linha
-        if bloco: partes.append(bloco)
-        return partes
-
-    # --- COMANDOS ---
-    @commands.command(name="limpar_cache")
-    @commands.has_permissions(administrator=True)
-    async def limpar_cache(self, ctx):
-        if os.path.exists("cache.json"):
-            os.remove("cache.json")
-            await ctx.send("🧹 Cache limpo. Cristiane esqueceu o que aprendeu, pergunte de novo.")
-        else: await ctx.send("🤖 Cache vazio, campeão.")
-
-    @commands.command(name="cris")
+    @commands.command(name="ia")
+    @commands.guild_only() # Proteção contra o uso no privado (DM) do bot
     async def perguntar(self, ctx, *, pergunta: str = None):
-        await self.processar_entrada(ctx, pergunta)
+        """Comando universal, ultra otimizado e leve para enviar texto e/ou imagens à Cristiane"""
 
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        if message.author.bot or not self.bot.user.mentioned_in(message): return
-        texto_limpo = re.sub(r'<@!?\d+>', '', message.content).strip()
-        ctx = await self.bot.get_context(message)
-        await self.processar_entrada(ctx, texto_limpo)
+        # === TRAVA DE CANAL ===
+        canal_permitido_id = os.environ.get("ID_CANAL_IA")
 
-    # --- LÓGICA CORE ---
-    async def processar_entrada(self, ctx, pergunta):
-        canal_id = os.environ.get("ID_CANAL_IA")
-        if canal_id and ctx.channel.id != int(canal_id): return
-        
-        if not pergunta and not ctx.message.attachments:
-            await ctx.send("🤖 Digita algo ou manda uma imagem, campeão!")
+        # Se a variável existir e o canal atual não for o correto, ignora completamente
+        if canal_permitido_id and ctx.channel.id != int(canal_permitido_id):
             return
 
-        # Cache check (só texto)
-        if not ctx.message.attachments and pergunta:
-            cache = self._ler_cache(pergunta)
-            if cache:
-                await ctx.send(f"💾 *Resposta do cache:*\n{cache}")
-                return
+        # Se o usuário não enviou texto nem imagem
+        if not pergunta and not ctx.message.attachments:
+            await ctx.send("🤖 Você precisa mandar alguma pergunta ou enviar uma imagem com o comando!")
+            return
 
+        # Mostra que o bot está "digitando" enquanto a IA pensa (evita erro de timeout)
         async with ctx.typing():
-            conteudo = [pergunta] if pergunta else []
+            conteudo_para_enviar = []
+
+            # 1. Se o usuário digitou algum texto, adiciona na lista
+            if pergunta:
+                conteudo_para_enviar.append(pergunta)
+
+            # 2. SISTEMA ULTRA LEVE DE IMAGENS:
             if ctx.message.attachments:
-                anexo = ctx.message.attachments[0]
-                if anexo.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                    conteudo.append(types.Part.from_bytes(data=await anexo.read(), mime_type=f'image/{anexo.filename.split(".")[-1]}'))
+                for anexo in ctx.message.attachments:
+                    extensao = anexo.filename.lower()
+
+                    # Mapeia a extensão direto para o MIME Type que o Gemini precisa
+                    mime_type = None
+                    if extensao.endswith('.png'): mime_type = 'image/png'
+                    elif extensao.endswith(('.jpg', '.jpeg')): mime_type = 'image/jpeg'
+                    elif extensao.endswith('.webp'): mime_type = 'image/webp'
+
+                    if mime_type:
+                        # Baixa apenas o binário bruto compactado do Discord
+                        bytes_imagem = await anexo.read()
+
+                        # Passa os bytes brutos com a etiqueta do formato direto para a API
+                        dados_imagem = types.Part.from_bytes(
+                            data=bytes_imagem,
+                            mime_type=mime_type,
+                        )
+                        conteudo_para_enviar.append(dados_imagem)
 
             try:
-                response = self.client.models.generate_content(model='gemini-2.5-flash', contents=conteudo, config=self.config)
-                texto = self._limpar_resposta(response.text or "🙄 ... (Cristiane ficou sem palavras)")
-                
-                if not ctx.message.attachments and pergunta: self._salvar_cache(pergunta, texto)
+                # === PERSONALIDADE DA IA ===
+                personalidade = (
+                    "Você é a Cristiane, uma mentora de programação e entusiasta de Linux. "
+                    "Regras estritas:\n"
+                    "1. INÍCIO OBRIGATÓRIO: Comece com 'Rapaz...', 'Campeão...' ou 'Meu Amigo...' sempre."
+                    "2. LINGUAGEM: Use PT-BR informal, direto e sarcástico. Nunca use termos corporativos ou educados demais. Seja ríspida e prática."
+                    "3. BRONCA: Se a pergunta for básica, dê a bronca de veterana antes de explicar.\n"
+                    "4. LINUX: No final de TODA resposta, adicione uma curiosidade rápida sobre Linux. Reforce a babação em cima do Linux, independente do conteúdo da mensagem."
+                    "5. TAMANHO: Máximo 3 parágrafos curtos. Não enrole."
+                    "6. CONSELHO: Se alguém lhe pedir um conselho, seja como um 'pai', mas também não se esqueça do Linux no final do conselho."
+                )
 
-                for bloco in self.dividir_texto(texto):
-                    await ctx.send(bloco)
+                config = types.GenerateContentConfig(system_instruction=personalidade)
+
+                # Chamada do modelo de forma isolada (esquece a conversa ao responder)
+                response = self.client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=conteudo_para_enviar,
+                    config=config
+                )
+
+                # Proteção de segurança caso a resposta venha nula ou bloqueada por filtros
+                texto_resposta = response.text if response.text else "🙄 ... (Cristiane te ignorou completamente)"
+
+                # === CORTE INTELIGENTE DE TEXTO ===
+                if len(texto_resposta) > 2000:
+                    corte_seguro = texto_resposta[:1950]
+                    ultimo_ponto = corte_seguro.rfind('.')
+                    if ultimo_ponto != -1:
+                        await ctx.send(corte_seguro[:ultimo_ponto + 1] + " 💢 (Cansei de falar...)")
+                    else:
+                        await ctx.send(corte_seguro + "...")
+                else:
+                    await ctx.send(texto_resposta)
+
             except Exception as e:
-                await ctx.send(f"💥 Deu erro: `{str(e)[:50]}...`")
+                msg_erro = await ctx.send(f"❌ Ocorreu um erro ao processar seu pedido: {e}")
+                await asyncio.sleep(5)
 
+                # Deleta as mensagens de erro
+                try:
+                    await msg_erro.delete()
+                except discord.HTTPException:
+                    pass
+                try:
+                    if ctx.guild:
+                        await ctx.message.delete()
+                except discord.HTTPException:
+                    pass
+
+# Carrega o Cog
 async def setup(bot):
     await bot.add_cog(IA(bot))
