@@ -1,6 +1,9 @@
 import os
 import re
 import discord
+import logging
+import hashlib
+import json
 from discord.ext import commands
 from google import genai
 from google.genai import types
@@ -29,6 +32,27 @@ class IA(commands.Cog):
             temperature=0.7
         )
 
+    # --- CACHE ---
+    def _obter_hash(self, texto: str) -> str:
+        return hashlib.md5(texto.lower().strip().encode('utf-8')).hexdigest()
+
+    def _ler_cache(self, pergunta: str):
+        if not os.path.exists("cache.json"): return None
+        try:
+            with open("cache.json", "r", encoding="utf-8") as f:
+                cache = json.load(f)
+                return cache.get(self._obter_hash(pergunta))
+        except: return None
+
+    def _salvar_cache(self, pergunta: str, resposta: str):
+        try:
+            cache = {}
+            if os.path.exists("cache.json"):
+                with open("cache.json", "r", encoding="utf-8") as f: cache = json.load(f)
+            cache[self._obter_hash(pergunta)] = resposta
+            with open("cache.json", "w", encoding="utf-8") as f: json.dump(cache, f, indent=4)
+        except: pass
+
     # --- FILTRO DE LIMPEZA ---
     def _limpar_resposta(self, texto: str) -> str:
         padroes_lixo = [
@@ -55,8 +79,15 @@ class IA(commands.Cog):
         if bloco_atual: partes.append(bloco_atual)
         return partes
 
-    # --- EXECUÇÃO DA IA (SEM MEMÓRIA) ---
+    # --- EXECUÇÃO DA IA ---
     async def processar_ia(self, ctx, pergunta: str, dados_imagem):
+        # Cache check: Só checa se não for imagem
+        if not dados_imagem and pergunta:
+            cache_resposta = self._ler_cache(pergunta)
+            if cache_resposta:
+                await ctx.send(f"💾 *Resposta recuperada do cache:* \n{cache_resposta}")
+                return
+
         async with ctx.typing():
             try:
                 conteudo = []
@@ -71,6 +102,10 @@ class IA(commands.Cog):
                 
                 texto_raw = response.text if response.text else "🙄 ... (Cristiane ficou sem palavras)"
                 texto_final = self._limpar_resposta(texto_raw)
+
+                # Salvar no cache se não for imagem
+                if not dados_imagem and pergunta:
+                    self._salvar_cache(pergunta, texto_final)
 
                 for bloco in self.dividir_texto_inteligente(texto_final):
                     await ctx.send(bloco)
