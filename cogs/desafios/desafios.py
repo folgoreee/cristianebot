@@ -3,6 +3,7 @@ import json
 import logging
 import asyncio
 import discord
+import aiofiles
 from pathlib import Path
 from discord.ext import commands
 from discord import app_commands
@@ -13,7 +14,6 @@ from google.genai import types
 logger = logging.getLogger('CristianeBot.Desafios')
 LEADERBOARD_FILE = Path("leaderboard.json")
 
-# Schema de validação do Pydantic
 class QuizSchema(BaseModel):
     pergunta: str = Field(description="A descrição clara do problema técnico ou código com erro.")
     A: str = Field(description="Texto da Opção A.")
@@ -23,9 +23,6 @@ class QuizSchema(BaseModel):
     correta: str = Field(description="A letra da opção correta (A, B, C ou D).")
     pontos: int = Field(description="Um número inteiro de 10 a 50 com base na dificuldade do problema.")
 
-# ===================================================================
-# INTERFACE DOS BOTÕES DO QUIZ
-# ===================================================================
 class QuizView(discord.ui.View):
     def __init__(self, cog_desafios, autor_id: int, resposta_correta: str, pontos: int):
         super().__init__(timeout=60.0)
@@ -56,7 +53,8 @@ class QuizView(discord.ui.View):
                 child.disabled = True
 
         if escolha == self.resposta_correta:
-            novo_total = self.cog_desafios.adicionar_pontos(interaction.user.id, self.pontos)
+            # Agora usamos await para adicionar pontos
+            novo_total = await self.cog_desafios.adicionar_pontos(interaction.user.id, self.pontos)
             embed_sucesso = discord.Embed(
                 title="✅ RESPOSTA CORRETA!",
                 description=f"Rapaz, sabias mesmo esta! Ganhaste **{self.pontos} pontos**.\n🏆 Total acumulado: **{novo_total} pontos**.",
@@ -97,20 +95,20 @@ class QuizView(discord.ui.View):
         if self.message:
             try:
                 await self.message.edit(view=self)
+            except discord.NotFound:
+                # Se a mensagem foi apagada antes do timeout, ignoramos
+                pass
             except Exception as e:
                 logger.warning(f"Falha ao atualizar timeout: {e}")
 
-# ===================================================================
-# COG PRINCIPAL DE DESAFIOS
-# ===================================================================
 class Desafios(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Padronizado para GEMINI_API_KEY
         self.client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         self.leaderboard = self.carregar_leaderboard()
 
     def carregar_leaderboard(self):
+        # Continua síncrono pois roda apenas uma vez no __init__
         if LEADERBOARD_FILE.exists():
             try:
                 with open(LEADERBOARD_FILE, "r", encoding="utf-8") as f:
@@ -119,19 +117,21 @@ class Desafios(commands.Cog):
                 logger.error(f"❌ Erro ao ler leaderboard: {e}")
         return {}
 
-    def guardar_leaderboard(self):
+    async def guardar_leaderboard(self):
+        # Salva o arquivo de forma assíncrona, sem travar o bot
         try:
-            with open(LEADERBOARD_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.leaderboard, f, ensure_ascii=False, indent=4)
+            async with aiofiles.open(LEADERBOARD_FILE, "w", encoding="utf-8") as f:
+                conteudo = json.dumps(self.leaderboard, ensure_ascii=False, indent=4)
+                await f.write(conteudo)
         except Exception as e:
             logger.error(f"❌ Erro ao guardar leaderboard: {e}")
 
-    def adicionar_pontos(self, user_id: int, pontos: int) -> int:
+    async def adicionar_pontos(self, user_id: int, pontos: int) -> int:
         str_id = str(user_id)
         if str_id not in self.leaderboard:
             self.leaderboard[str_id] = 0
         self.leaderboard[str_id] += pontos
-        self.guardar_leaderboard()
+        await self.guardar_leaderboard()
         return self.leaderboard[str_id]
 
     @commands.hybrid_command(name="desafio", description="Gera um desafio técnico")
@@ -144,10 +144,8 @@ class Desafios(commands.Cog):
         max_tentativas = 3
         dados_quiz = None
 
-        # Loop de Retry para lidar com erros 503 da API
         for tentativa in range(max_tentativas):
             try:
-                # CHAMADA ASSÍNCRONA (AIO)
                 response = await self.client.aio.models.generate_content(
                     model='gemini-2.5-flash',
                     contents=prompt_quiz,
@@ -158,7 +156,7 @@ class Desafios(commands.Cog):
                     )
                 )
                 dados_quiz = QuizSchema.model_validate_json(response.text)
-                break # Sai do loop se der certo
+                break 
             except Exception as e:
                 if "503" in str(e) and tentativa < max_tentativas - 1:
                     logger.warning(f"Tentativa {tentativa+1} falhou (503). Retentando...")
