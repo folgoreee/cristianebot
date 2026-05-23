@@ -4,3 +4,4 @@ waitress
 google-genai
 pydantic
 python-dotenv
+aiofiles
