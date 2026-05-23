@@ -18,17 +18,14 @@ class IA(commands.Cog):
     async def perguntar(self, ctx, *, pergunta: str = None):
         """Comando da Cristiane: !cris <pergunta>"""
 
-        # === DEBUG: Log para saber se o comando chegou ===
         logger.info(f"Comando !cris recebido de {ctx.author.name} no canal {ctx.channel.id}")
 
-        # === TRAVA DE CANAL ===
         canal_permitido_id = os.environ.get("ID_CANAL_IA")
 
         if canal_permitido_id and ctx.channel.id != int(canal_permitido_id):
             logger.warning(f"Comando ignorado: Usuário tentou usar fora do canal permitido ({canal_permitido_id})")
             return
 
-        # Se o usuário não enviou texto nem imagem
         if not pergunta and not ctx.message.attachments:
             await ctx.send("🤖 Rapaz, você precisa mandar a pergunta ou uma imagem junto com o `!cris`!")
             return
@@ -55,7 +52,7 @@ class IA(commands.Cog):
                         )
                         conteudo_para_enviar.append(dados_imagem)
 
-           try:
+            try:
                 personalidade = (
                     "Você é a Cristiane, uma mentora de programação e entusiasta de Linux. "
                     "Regras estritas:\n"
@@ -68,7 +65,6 @@ class IA(commands.Cog):
 
                 config = types.GenerateContentConfig(system_instruction=personalidade)
                 
-                # Fila de modelos: começa do principal, vai pro mais leve se der erro de cota
                 modelos = ['gemini-2.5-flash', 'gemini-2.5-flash-8b']
                 response = None
                 erro_final = None
@@ -84,31 +80,28 @@ class IA(commands.Cog):
                                 config=config
                             )
                             sucesso = True
-                            break # Deu certo, sai do loop de tentativas
+                            break 
                             
                         except Exception as e:
                             erro_final = e
                             erro_str = str(e)
                             
-                            # Erro 503: Instabilidade no servidor do Google. Espera e tenta de novo.
                             if "503" in erro_str:
                                 if tentativa < max_tentativas - 1:
                                     await asyncio.sleep(4)
                                     continue
                                     
-                            # Erro 429: Cota excedida (Rate Limit). Abandona o modelo atual e vai pro reserva.
                             elif "429" in erro_str:
                                 logger.warning(f"Cota estourada no modelo {modelo}! Trocando para o modelo mais leve...")
-                                break # Quebra o loop de tentativas e o 'for' principal passa para o modelo '-8b'
+                                break 
                                 
                             else:
-                                raise e # Se for outro erro (ex: credencial inválida), para tudo.
+                                raise e 
 
                     if sucesso:
-                        break # Se conseguiu a resposta com um dos modelos, sai da fila de modelos
+                        break 
 
                 if not sucesso:
-                    # Se falhou nos dois modelos, dispara o erro para o usuário
                     raise erro_final
 
                 texto_resposta = response.text if response and response.text else "🙄 ... (Cristiane te ignorou completamente)"
@@ -123,4 +116,7 @@ class IA(commands.Cog):
             except Exception as e:
                 logger.error(f"Erro ao gerar resposta: {e}")
                 await ctx.send("❌ Ocorreu um erro ao processar seu pedido (Acho que a Cristiane foi tomar um café).")
+
+# Função obrigatória para carregar o cog
+async def setup(bot):
     await bot.add_cog(IA(bot))
